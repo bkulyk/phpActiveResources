@@ -10,10 +10,15 @@ class phpActiveResourceBase{
    * or created in PHP.
    */
   protected $_resource_found = false;
+  
   /**
    * String $default_site[optional] default host name and protocal for the Rails site, ie. http://localhost:3000
    */
+  
   public static $default_site = null;
+  
+  public $_has_one = array();
+  public $_has_many = array();
   /**
    * An array of non-standard pluralizations 
    * @author https://github.com/lux/phpactiveresource.git
@@ -84,7 +89,10 @@ class phpActiveResourceBase{
     // get results from web service
     $obj = $this->fetch_object_from_url( $url, 'GET' );
     // prep the final object
-    return $this->bind_obj_to_class( get_class( $this ), json_decode( $obj ) );
+    $res = json_decode( $obj );
+    if( is_array( $res ) )
+      return $res;
+    return $this->bind_obj_to_class( get_class( $this ), $res );
   }
   
   protected function prep_uri( $id=null ) {
@@ -95,6 +103,9 @@ class phpActiveResourceBase{
     return $url;
   }
   
+  /**
+   * @note much of this was lifted from: https://github.com/lux/phpactiveresource.git
+   */
   protected function fetch_object_from_url( $url, $params=array(), $method='GET' ) {
     $method = is_null( $method ) ? "GET" : strtoupper( $method );
     
@@ -168,12 +179,18 @@ class phpActiveResourceBase{
     $field = $this->primary_key;
     return $this->$field;
   }
-
+  protected function has_one( $name, $options=array() ) {
+    $this->_has_one[ $name ] = $options;
+  }
+  /**
+   * Check to see if this class has nested resources
+   */
   public function __get( $name ) {
     if( strpos( $name, '_' ) === 0 )
       return;
       
-    if( isset( $this->has_one ) && in_array( $name, $this->has_one ) ) {
+    if( isset( $this->_has_one[$name] ) ) {
+      // guess the class name
       $klass = ucwords( $name );
       $o = new $klass; // create a new instance of the sub object
       // set the url to be a nested resource
