@@ -3,7 +3,7 @@ class phpActiveResourceBase{
   /**
    * The primary key should be the 'id' column, but occasionally this needs to change.
    */
-  public $primary_key = 'id';
+  public $_primary_key = 'id';
   
   /**
    * boolean $_resource_found //will track if the resource was pulled from Rails 
@@ -65,8 +65,8 @@ class phpActiveResourceBase{
   }
   
   protected function get_site() {
-    $site = $this->site;
-    if( is_null( $this->site ) )
+    $site = $this->_site;
+    if( is_null( $this->_site ) )
       $site = phpActiveResourceBase::$default_site;
     if( is_null( $site ) ) {
       throw new Exception( "Active Resource site must be defined as a property of the phpActiveResourceBase child class or static property of phpActiveResourceBase" );
@@ -75,8 +75,19 @@ class phpActiveResourceBase{
     return $site;
   }
   
+  public function build_params() {
+    $obj = new stdClass;
+    foreach( $this as $k=>$v )
+      if( substr( $k, 0, 1 ) != '_' )
+        if( $k != $this->_primary_key )
+          $obj->$k = $v;
+    return json_encode( $obj );
+  }
+  
   public function save() {
-    $url = $this->get_site().str_replace( ":id", $this->primary_key(), $this->_save_uri );
+    $url = $this->get_site().$this->prep_uri();
+    $res = $this->fetch_object_from_url( $url, $this->build_params(), 'PUT' );
+    return $this->bind_obj_to_class( $this, $res );
   }
   
   public function delete() {
@@ -87,24 +98,37 @@ class phpActiveResourceBase{
     // build the url
     $url = $this->get_site().$this->prep_uri( $id ).".json";
     // get results from web service
-    $obj = $this->fetch_object_from_url( $url, 'GET' );
+    $res = $this->fetch_object_from_url( $url, 'GET' );
     // prep the final object
-    $res = json_decode( $obj );
     if( is_array( $res ) )
       return $res;
-    return $this->bind_obj_to_class( get_class( $this ), $res );
+    return $this->bind_obj_to_class( $this, $res );
   }
   
+  protected function bind_obj_to_class( &$instance, &$obj ) {
+    foreach( $obj as $k=>$v )
+      $instance->$k = rtrim($v);
+    return $instance;
+  }
+  
+  /**
+   * Build the uri for accessing this resource
+   */
   protected function prep_uri( $id=null ) {
-    // build the url
+    // build the uri
     $url = str_replace( ":id", $id, $this->_find_uri );
-    // var_dump( $url );
     $url = str_replace( ":resource_name", $this->resource_name(), $url );
     return $url;
   }
   
   /**
+   * Execute the curl http request
+   * 
    * @note much of this was lifted from: https://github.com/lux/phpactiveresource.git
+   * @throws parMoved for 3xx errors
+   * @throws parNotFound for 4xx errors
+   * @throws parUnprocessable for 422 errors
+   * @throws parServerError for 5xx errors
    */
   protected function fetch_object_from_url( $url, $params=array(), $method='GET' ) {
     $method = is_null( $method ) ? "GET" : strtoupper( $method );
@@ -150,33 +174,33 @@ class phpActiveResourceBase{
     
     $http_code = curl_getinfo($c, CURLINFO_HTTP_CODE);
     switch( substr( $http_code, 0, 1 ) ) {
-      case 3:
-        throw new parMoved( "http $http_code" );
-        return;
+      // case 3:
+        // throw new parMoved( "http $http_code" );
+        // return;
       case 4:
-        throw new parNotFound( "http $http_code" );
+        if( $http_code == 422 )
+          throw new parUnprocessable( "http $http_code" ); 
+        else
+          $this->_errors = $this->decode_response( $res );
+          throw new parNotFound( "http $http_code" );
         return;
-      case 5;
+      case 5:
         throw new parServerError( "http $http_code" );
         return;
+      default:
+        return $this->decode_response( $res );
     }
-    
+  }
+
+  public function decode_response( $res ) {
     // separate the body from the header
     $x = explode( "\n\r\n", $res );
     list( $headers, $body ) = explode( "\n\r\n", $res, 2 );
-    
-    return $body;
-  }
-  
-  protected function bind_obj_to_class( $klass, $obj ) {
-    $instance = new $klass();
-    foreach( $obj as $k=>$v )
-      $instance->$k = $v;
-    return $instance;
+    return json_decode( $body );
   }
   
   public function primary_key() {
-    $field = $this->primary_key;
+    $field = $this->_primary_key;
     return $this->$field;
   }
   protected function has_one( $name, $options=array() ) {
@@ -194,7 +218,7 @@ class phpActiveResourceBase{
       $klass = ucwords( $name );
       $o = new $klass; // create a new instance of the sub object
       // set the url to be a nested resource
-      $o->_find_uri = $this->prep_uri( $this->pk() ) . "/" . $o->_find_uri;
+      $o->_find_uri = $this->prep_uri( $this->primary_key() ) . "/" . $o->_find_uri;
       try{
         return $o->find();
       }catch( parNotFound $e ) {
@@ -206,12 +230,9 @@ class phpActiveResourceBase{
     }
   }  
   
-  public function pk() {
-    $pk = $this->primary_key;
-    return $this->$pk;
-  }
 }
 
+class parUnprocessable extends Exception{}
 class parNotFound extends Exception{}
 class parServerError extends Exception{}
 class parMoved extends Exception{}
