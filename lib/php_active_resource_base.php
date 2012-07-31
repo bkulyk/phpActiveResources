@@ -126,7 +126,8 @@ class phpActiveResourceBase{
    * 
    * @note much of this was lifted from: https://github.com/lux/phpactiveresource.git
    * @throws parMoved for 3xx errors
-   * @throws parNotFound for 4xx errors
+   * @throws parUnprocessable for 401 errors
+   * @throws parNotFound for 404 errors
    * @throws parUnprocessable for 422 errors
    * @throws parServerError for 5xx errors
    */
@@ -148,7 +149,7 @@ class phpActiveResourceBase{
 
     /* HTTP Basic Authentication */
     if ($this->_user && $this->_password) {
-      curl_setopt( $c, CURLOPT_USERPWD, $this->user . ":" . $this->password ); 
+      curl_setopt( $c, CURLOPT_USERPWD, $this->_user . ":" . $this->_password ); 
     }
 
     curl_setopt($c, CURLOPT_HTTPHEADER, array( "Expect:", "Content-Type: application/json", "Length: " . strlen( $params ) ) );
@@ -178,15 +179,22 @@ class phpActiveResourceBase{
         // throw new parMoved( "http $http_code" );
         // return;
       case 4:
-        if( $http_code == 422 )
-          throw new parUnprocessable( "http $http_code" ); 
-        else
-          $this->_errors = $this->decode_response( $res );
-          throw new parNotFound( "http $http_code" );
-        return;
+        switch( $http_code ) {
+          case 401:
+            throw new parUnauthorized( "http $http_code" );
+            break;
+          case 404:
+            throw new parNotFound( "http $http_code" );
+            break;
+          case 422:
+            $this->_errors = $this->decode_response( $res );
+            throw new parUnprocessable( "http $http_code" ); 
+            break;
+        }
+        break;
       case 5:
         throw new parServerError( "http $http_code" );
-        return;
+        break;
       default:
         return $this->decode_response( $res );
     }
@@ -232,6 +240,7 @@ class phpActiveResourceBase{
   
 }
 
+class parUnauthorized extends Exception{}
 class parUnprocessable extends Exception{}
 class parNotFound extends Exception{}
 class parServerError extends Exception{}
