@@ -91,7 +91,9 @@ class phpActiveResourceBase{
   }
   
   public function delete() {
-    $url = $this->get_site().str_replace( ":id", $this->primary_key(), $this->_delete_uri );
+    $url = $this->get_site().$this->prep_uri();
+    $res = $this->fetch_object_from_url( $url, $this->build_params(), 'DELETE' );
+    return;
   }
   
   public function find( $id=null ) {
