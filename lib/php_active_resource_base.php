@@ -1,5 +1,5 @@
 <?php
-class phpActiveResourceBase{
+abstract class phpActiveResourceBase{
   /**
    * The primary key should be the 'id' column, but occasionally this needs to change.
    */
@@ -14,11 +14,15 @@ class phpActiveResourceBase{
   /**
    * String $default_site[optional] default host name and protocal for the Rails site, ie. http://localhost:3000
    */
-  
   public static $default_site = null;
+  public static $default_user = null;
+  public static $default_password = null;
+  public $_request_format = '.json';
   
   public $_has_one = array();
   public $_has_many = array();
+  // public $_belongs_to = array();
+  
   /**
    * An array of non-standard pluralizations 
    * @author https://github.com/lux/phpactiveresource.git
@@ -64,6 +68,13 @@ class phpActiveResourceBase{
     return $word;
   }
   
+  public function __construct() { }
+  
+  /**
+   * Get the url of the site to send web requests. 
+   * If the _site property has been set, use that, otherwise use the 
+   * phpActiveResourceBase::$default_site setting.
+   */
   protected function get_site() {
     $site = $this->_site;
     if( is_null( $this->_site ) )
@@ -75,39 +86,98 @@ class phpActiveResourceBase{
     return $site;
   }
   
-  public function build_params() {
-    $obj = new stdClass;
+  /**
+   * Build the web query parameters in the proper format.  
+   * Delegates to the build_json_params method
+   * @return String -- encoded parameters
+   * @throws parFormatNotSupported
+   */
+  protected function build_params() {
+    if( $this->_request_format == '.json' )
+      return $this->build_json_params();
+    else
+      throw new parFormatNotSupported( "$this->_request_format not yet supported." );
+  }
+  
+  /**
+   * Build the json parameters to send.
+   * Should be an json encoded object with a single element that has the name of this object 
+   * and it's value should be an object with it's properties
+   * ie { "user"=>{ "first_name"=>"some", "last_name"=>"body" } }
+   * @return String -- json encoded parameters
+   */
+  protected function build_json_params() {
+    $base = new stdClass;
+    $key = strtolower( get_class( $this ) );
+    $base->$key = new stdClass;
+    $obj = &$base->$key;
     foreach( $this as $k=>$v )
       if( substr( $k, 0, 1 ) != '_' )
         if( $k != $this->_primary_key )
           $obj->$k = $v;
-    return json_encode( $obj );
+    return json_encode( $base );
   }
   
+  /**
+   * Send the webrequest necessacrary to Update or Create the object.  
+   * This is based off of if the resource was retreived from the webserver or not.
+   * NOTE: I cannot base this entirely off of the primary key because we have systems that use primary keys 
+   * that are not generated integers, instead they are unique strings, etc.
+   */
   public function save() {
-    $url = $this->get_site().$this->prep_uri();
-    $res = $this->fetch_object_from_url( $url, $this->build_params(), 'PUT' );
+    $url = $this->get_site().$this->prep_uri().$this->_request_format;
+    $method = $this->_resource_found ? "PUT" : "POST"; // updates are PUT creates are POST
+    $res = $this->fetch_object_from_url( $url, $this->build_params(), $method );
     return $this->bind_obj_to_class( $this, $res );
   }
   
+  /**
+   * Alias for the destroy method
+   */
   public function delete() {
-    $url = $this->get_site().$this->prep_uri();
+    return $this->destroy();
+  }
+  
+  /**
+   * Send the webrequest necessacary to Destroy the object
+   */
+  public function destroy() {
+    $url = $this->get_site().$this->prep_uri().$this->_request_format;
     $res = $this->fetch_object_from_url( $url, $this->build_params(), 'DELETE' );
     return;
   }
   
+  /**
+   * 
+   */
   public function find( $id=null ) {
     // build the url
-    $url = $this->get_site().$this->prep_uri( $id ).".json";
+    $url = $this->get_site().$this->prep_uri( $id ).$this->_request_format;
     // get results from web service
     $res = $this->fetch_object_from_url( $url, 'GET' );
+    
+    if( is_null( $res ) ) // it doesn't exist
+      throw new parNotFound( 'object not found' );
+      
     // prep the final object
-    if( is_array( $res ) )
+    if( is_array( $res ) ) {
+      $klass = get_class( $this );
+      foreach( $res as $k=>$v ) {
+        $res[$k] = new $klass;
+        $this->bind_obj_to_class( $res[$k], $v );
+      }
       return $res;
+    }
+    
+    $this->_resource_found = true;
     return $this->bind_obj_to_class( $this, $res );
   }
   
-  protected function bind_obj_to_class( &$instance, &$obj ) {
+  /**
+   * Copy the properties from $obj to $instance
+   * @return $instance -- with new properties
+   */
+  protected function bind_obj_to_class( &$instance, $obj ) {
     foreach( $obj as $k=>$v )
       $instance->$k = rtrim($v);
     return $instance;
@@ -115,17 +185,21 @@ class phpActiveResourceBase{
   
   /**
    * Build the uri for accessing this resource
+   * @param Mixed $id -- id to be used in the uri
+   * @return String -- uri
    */
   protected function prep_uri( $id=null ) {
     // build the uri
-    $url = str_replace( ":id", $id, $this->_find_uri );
-    $url = str_replace( ":resource_name", $this->resource_name(), $url );
-    return $url;
+    $uri = str_replace( ":id", $id, $this->_find_uri );
+    $uri = str_replace( ":resource_name", $this->resource_name(), $uri );
+    return $uri;
   }
   
   /**
    * Execute the curl http request
-   * 
+   * @param String $url -- url to access via cURL request
+   * @param Strng $params [optional] -- parameters to send to the webservice NOTE: these should already be encoded
+   * @param String $method [optional] -- type of request to send, should be one of GET, POST, PUT, DELETE 
    * @note much of this was lifted from: https://github.com/lux/phpactiveresource.git
    * @throws parMoved for 3xx errors
    * @throws parUnprocessable for 401 errors
@@ -133,10 +207,13 @@ class phpActiveResourceBase{
    * @throws parUnprocessable for 422 errors
    * @throws parServerError for 5xx errors
    */
-  protected function fetch_object_from_url( $url, $params=array(), $method='GET' ) {
-    $method = is_null( $method ) ? "GET" : strtoupper( $method );
+  protected function fetch_object_from_url( $url, $params='', $method='GET' ) {
+    $method = strtoupper( "$method" );
+    if( !in_array( $method, array( 'GET', "POST", "PUT", 'DELETE' ) ) )
+      $method = 'GET';
     
     echo "\n$method - $url\n";
+    echo "$params\n";
     
     $c = curl_init ();
     curl_setopt($c, CURLOPT_URL, $url);
@@ -149,9 +226,12 @@ class phpActiveResourceBase{
     curl_setopt($c, CURLOPT_SSL_VERIFYPEER, 0);
     curl_setopt($c, CURLOPT_SSL_VERIFYHOST, 0);
 
+
     /* HTTP Basic Authentication */
     if ($this->_user && $this->_password) {
       curl_setopt( $c, CURLOPT_USERPWD, $this->_user . ":" . $this->_password ); 
+    }elseif( phpActiveResourceBase::$default_user && phpActiveResourceBase::$default_password ) {
+      curl_setopt( $c, CURLOPT_USERPWD, phpActiveResourceBase::$default_user . ":" . phpActiveResourceBase::$default_password );
     }
 
     curl_setopt($c, CURLOPT_HTTPHEADER, array( "Expect:", "Content-Type: application/json", "Length: " . strlen( $params ) ) );
@@ -202,22 +282,44 @@ class phpActiveResourceBase{
     }
   }
 
-  public function decode_response( $res ) {
+  /**
+   * Separate the header from the body of the response and parse the body to the correct format (if supported)
+   * @param String $res -- raw response to be parsed 
+   * @return Mixed[] 
+   * @throws parFormatNotSupported
+   */
+  protected function decode_response( $res ) {
     // separate the body from the header
     $x = explode( "\n\r\n", $res );
     list( $headers, $body ) = explode( "\n\r\n", $res, 2 );
-    return json_decode( $body );
+    if( $this->_request_format == '.json')
+      return json_decode( $body );
+    else
+      throw new parFormatNotSupported( "$this->_request_format not yet supported." );
   }
   
+  /**
+   * Get the value of the primary key field
+   * @return Mixed
+   */
   public function primary_key() {
     $field = $this->_primary_key;
     return $this->$field;
   }
+  
+  /**
+   * Set a has_one relationship
+   * @param Sting $name -- name of the relationship
+   * @param Mixed[] $options -- options for the relationship NOTE: not yet implemented
+   * @todo implement options
+   */
   protected function has_one( $name, $options=array() ) {
     $this->_has_one[ $name ] = $options;
   }
+  
   /**
    * Check to see if this class has nested resources
+   * @return Mixed -- object if has_one was found -- array if has_many was found -- null if nothing was found
    */
   public function __get( $name ) {
     if( strpos( $name, '_' ) === 0 )
@@ -238,7 +340,33 @@ class phpActiveResourceBase{
     }else{
       echo "Relationship not found $name\n";
     }
-  }  
+  }
+  
+  /**
+   * Create an instance of a nested resource
+   * Will update the _find_uri to be nested.
+   * @param String $relationship -- name of the relationship
+   * @param Object/Associative Array -- parameters to bind to the new object 
+   * @return Object -- object of the type specified in the relationship
+   * @return Null -- if relationship does was not defined
+   */
+  public function new_child( $relationship, $params ) {
+    if( strpos( $relationship, '_' ) === 0 )
+      return;
+    
+    if( isset( $this->_has_one[ $relationship ] ) ) {
+      $klass = ucwords( $relationship );
+      $o = new $klass; // create a new instance of the sub object
+      // set the url to be a nested resource
+      $o->_find_uri = $this->prep_uri( $this->primary_key() ) . "/" . $o->_find_uri;
+      $params = (object)$params;
+      $this->bind_obj_to_class( $o, $params );
+      return $o;
+    }else{
+      echo "Relationship not found $relationship\n";
+    }
+    
+  }
   
 }
 
@@ -247,4 +375,5 @@ class parUnprocessable extends Exception{}
 class parNotFound extends Exception{}
 class parServerError extends Exception{}
 class parMoved extends Exception{}
+class parFormatNotSupported extends Exception{}
 ?>
