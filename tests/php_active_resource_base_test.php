@@ -38,6 +38,10 @@ class Movie extends phpActiveResources{
     return $this->decode_response( $res );
   }
   
+  public function set_resource_found() {
+    $this->_resource_found = true;
+  }
+  
 }
 
 class Director extends phpActiveResource{
@@ -50,16 +54,6 @@ class Director extends phpActiveResource{
 }
 
 class php_active_resource_base_test extends PHPUnit_Framework_TestCase{
-  
-  public function test_find() {}
-  
-  public function test_save() {}
-  
-  public function test_destroy() {}
-  
-  public function test_delete() {
-    # nothing to do here
-  }
   
   public function test_new_child() {
     $m = new Movie;
@@ -226,6 +220,54 @@ class php_active_resource_base_test extends PHPUnit_Framework_TestCase{
     $this->assertTrue( is_object( $res ), 'the response should be parsed into a stdClass' ); //associative array
     $this->assertEquals( 'stdClass', get_class( $res ) );
     $this->assertEquals( 'Home Alone', $res->title );
+  }
+  
+  public function test_find() {
+    $return_value =  (object)array( 'title'=>'Home Alone', 'year'=>1990 );
+    
+    $stub = $this->getMock( "Movie", array('fetch_object_from_url') );
+    $stub->expects( $this->any() )
+         ->method( 'fetch_object_from_url' )
+         ->will( $this->returnValue( $return_value ) );
+         
+    $stub->find( 10 );
+    $this->assertEquals( 'Home Alone', $stub->title );
+  }
+  
+  public function test_save() {
+    $return_value =  (object)array( 'title'=>'Home Alone 2: Lost in New York', 'year'=>1992, 'rating'=>6.1 ); // change the title so I can check that it's binding values
+    $stub = $this->getMock( "Movie", array('fetch_object_from_url') );
+    $stub->expects( $this->any() )
+         ->method( 'fetch_object_from_url' )
+         ->will( $this->returnValue( $return_value ) );
+         
+    $stub->set_resource_found();
+    $stub->set( array( 'title'=>'Home Alone', 'year'=>1990, 'id'=>10 ) );
+    
+    // change some details
+    $stub->title = "Home Alone 2";
+    $stub->year = 1992;
+    $stub->id = 10;
+    $stub->save();
+    
+    // now make sure the save did what it was supposed to
+    $this->assertEquals( 'Home Alone 2: Lost in New York', $stub->title );
+    $this->assertEquals( 1992, $stub->year );
+    $this->assertEquals( 6.1, $stub->rating  );
+  }
+  
+  public function test_destroy() {
+    $stub = $this->getMock( "Movie", array('fetch_object_from_url') );
+    $stub->expects( $this->any() )
+         ->method( 'fetch_object_from_url' )
+         ->will( $this->returnValue( '' ) );
+         
+    $stub->set_resource_found();
+    $stub->set( array( 'title'=>'Home Alone', 'year'=>1990, 'id'=>10 ) );
+    
+    $stub->delete();
+    
+    $this->assertNull( $stub->title );
   }
   
 }

@@ -150,8 +150,13 @@ abstract class phpActiveResourceBase{
    * Send the webrequest necessacary to Destroy the object
    */
   public function destroy() {
+    // build url and send request
     $url = $this->get_site().$this->prep_uri().$this->_request_format;
-    $res = $this->fetch_object_from_url( $url, $this->build_params(), 'DELETE' );
+    $this->fetch_object_from_url( $url, $this->build_params(), 'DELETE' );
+    
+    // blank out properties
+    foreach( $this as $k=>$v )
+      $this->$k = null;
     return;
   }
   
