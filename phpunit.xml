@@ -1,0 +1,24 @@
+<phpunit colors="true">
+    <testsuite name="my test suite">
+        <!--<directory>./tests/</directory>-->
+        <file>./tests/php_active_resource_base_test.php</file>
+    </testsuite>
+    
+    <php>
+      <includePath>./lib</includePath>
+    </php>
+
+    <filter>
+        <whitelist>
+            <directory suffix=".php">./lib</directory>
+            <exclude>
+                <directory suffix=".phtml">./tests/</directory>
+            </exclude>
+        </whitelist>
+    </filter>
+    
+    <logging>
+      <log type="coverage-html" target="./report" charset="UTF-8" yui="true" highlight="false" lowUpperBound="35" highLowerBound="70"/>
+    </logging>
+ 
+</phpunit>

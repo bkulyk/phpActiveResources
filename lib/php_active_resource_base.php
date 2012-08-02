@@ -21,7 +21,8 @@ abstract class phpActiveResourceBase{
   
   public $_has_one = array();
   public $_has_many = array();
-  // public $_belongs_to = array();
+  
+  public $_find_uri   = ":resource_name/:id";
   
   /**
    * An array of non-standard pluralizations 
@@ -68,7 +69,13 @@ abstract class phpActiveResourceBase{
     return $word;
   }
   
-  public function __construct() { }
+  public function __construct() {
+    $k = $this->_primary_key;
+    
+    // make sure the key is always set to something
+    if( !isset( $this->$k ) )
+      $this->$k = null;
+  }
   
   /**
    * Get the url of the site to send web requests. 
@@ -128,7 +135,8 @@ abstract class phpActiveResourceBase{
     $url = $this->get_site().$this->prep_uri().$this->_request_format;
     $method = $this->_resource_found ? "PUT" : "POST"; // updates are PUT creates are POST
     $res = $this->fetch_object_from_url( $url, $this->build_params(), $method );
-    return $this->bind_obj_to_class( $this, $res );
+    $this->bind_obj_to_class( $this, $res );
+    return $this;
   }
   
   /**
@@ -170,7 +178,20 @@ abstract class phpActiveResourceBase{
     }
     
     $this->_resource_found = true;
-    return $this->bind_obj_to_class( $this, $res );
+    $this->bind_obj_to_class( $this, $res );
+    
+    return $this;
+  }
+  
+  public function set( $key_or_array, $value=null ) {
+    if( is_object($key_or_array) || is_array($key_or_array) ) {
+      $this->bind_obj_to_class( $this, (object)$key_or_array );
+      return $this;
+    } 
+   
+    $key = "$key_or_array";
+    $this->$key = $value;
+    return $this;
   }
   
   /**
@@ -178,8 +199,12 @@ abstract class phpActiveResourceBase{
    * @return $instance -- with new properties
    */
   protected function bind_obj_to_class( &$instance, $obj ) {
+    $obj = (object)$obj;
     foreach( $obj as $k=>$v )
-      $instance->$k = rtrim($v);
+      if( is_numeric( $v ) )
+        $instance->$k = $v;
+      else
+        $instance->$k = rtrim($v);
     return $instance;
   }
   
@@ -291,7 +316,11 @@ abstract class phpActiveResourceBase{
   protected function decode_response( $res ) {
     // separate the body from the header
     $x = explode( "\n\r\n", $res );
-    list( $headers, $body ) = explode( "\n\r\n", $res, 2 );
+    list( $headers, $body ) = explode( "\r\n\r\n", $res, 2 );
+    
+    // might be useful
+    $this->_response = array( 'raw'=>$res, 'headers'=>$headers, 'body'=>$body );
+    
     if( $this->_request_format == '.json')
       return json_decode( $body );
     else
@@ -337,9 +366,8 @@ abstract class phpActiveResourceBase{
         // return null if the resource does not exist
         return null;
       }
-    }else{
-      echo "Relationship not found $name\n";
     }
+    
   }
   
   /**
@@ -350,9 +378,15 @@ abstract class phpActiveResourceBase{
    * @return Object -- object of the type specified in the relationship
    * @return Null -- if relationship does was not defined
    */
-  public function new_child( $relationship, $params ) {
+  public function new_child( $relationship, $params=array() ) {
     if( strpos( $relationship, '_' ) === 0 )
       return;
+    
+    $pk = $this->primary_key();
+    if( empty( $pk ) )
+      throw new Exception( "Cannot create a child if the parent ".get_class( $this ). " has not been saved." );
+    
+    $o = null;
     
     if( isset( $this->_has_one[ $relationship ] ) ) {
       $klass = ucwords( $relationship );
@@ -360,12 +394,19 @@ abstract class phpActiveResourceBase{
       // set the url to be a nested resource
       $o->_find_uri = $this->prep_uri( $this->primary_key() ) . "/" . $o->_find_uri;
       $params = (object)$params;
-      $this->bind_obj_to_class( $o, $params );
-      return $o;
-    }else{
-      echo "Relationship not found $relationship\n";
+      if( count( $params ) )
+        $this->bind_obj_to_class( $o, $params );
     }
     
+    return $o;
+  }
+  
+  /**
+   * Guess the name of the resource by taking the name of the class, making it lowercase then pluralizing.
+   * @return String -- the name of the resource to be used in the url  ie Book becaomes books
+   */
+  protected function resource_name() {
+    return phpActiveResourceBase::pluralize( strtolower( get_class( $this ) ) );
   }
   
 }
