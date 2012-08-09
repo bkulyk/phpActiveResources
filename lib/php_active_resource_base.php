@@ -69,12 +69,14 @@ abstract class phpActiveResourceBase{
     return $word;
   }
   
-  public function __construct() {
+  public function __construct( $attributes=array() ) {
     $k = $this->_primary_key;
     
     // make sure the key is always set to something
     if( !isset( $this->$k ) )
       $this->$k = null;
+    
+    $this->bind_obj_to_class( $this, (object)$attributes );
   }
   
   /**
@@ -246,8 +248,8 @@ abstract class phpActiveResourceBase{
     if( !in_array( $method, array( 'GET', "POST", "PUT", 'DELETE' ) ) )
       $method = 'GET';
     
-    echo "\n$method - $url\n";
-    echo "$params\n";
+    // echo "\n$method - $url\n";
+    // echo "$params\n";
     
     $c = curl_init ();
     curl_setopt($c, CURLOPT_URL, $url);
@@ -343,6 +345,12 @@ abstract class phpActiveResourceBase{
   public function primary_key() {
     $field = $this->_primary_key;
     return $this->$field;
+  }
+  
+  public function set_primary_key( $val ) {
+    $field = $this->_primary_key;
+    $this->$field = $val;
+    return $this;
   }
   
   /**

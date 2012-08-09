@@ -6,8 +6,10 @@ class phpActiveResource extends phpActiveResourceBase{
   public $_site = null;
   
   public $_find_uri   = ":resource_name";
-  // public $_save_uri   = ":resource_name";
-  // public $_delete_uri = ":resource_name";
+  
+  public function __construct( $attributes=array() ) {
+    parent::__construct( $attributes );
+  }
   
   protected function resource_name() {
     return strtolower( get_class( $this ) );
