@@ -134,9 +134,13 @@ abstract class phpActiveResourceBase{
   public function save() {
     $url = $this->get_site().$this->prep_uri().$this->_request_format;
     $method = $this->_resource_found ? "PUT" : "POST"; // updates are PUT creates are POST
-    $res = $this->fetch_object_from_url( $url, $this->build_params(), $method );
-    $this->bind_obj_to_class( $this, $res );
-    return $this;
+    try{
+      $res = $this->fetch_object_from_url( $url, $this->build_params(), $method );
+      $this->bind_obj_to_class( $this, $res );
+    }catch( Exception $e ) {
+      return false;
+    }
+    return true;
   }
   
   /**
@@ -173,14 +177,14 @@ abstract class phpActiveResourceBase{
       throw new parNotFound( 'object not found' );
       
     // prep the final object
-    if( is_array( $res ) ) {
+    /*if( is_array( $res ) ) {
       $klass = get_class( $this );
       foreach( $res as $k=>$v ) {
         $res[$k] = new $klass;
         $this->bind_obj_to_class( $res[$k], $v );
       }
       return $res;
-    }
+    }*/
     
     $this->_resource_found = true;
     $this->bind_obj_to_class( $this, $res );

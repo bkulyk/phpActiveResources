@@ -180,6 +180,15 @@ class php_active_resource_base_test extends PHPUnit_Framework_TestCase{
     // should just call the public_build_json_params method 
     $results = $m->public_build_params();
     $this->assertEquals( $expected, $results );
+    
+    $m->_request_format = '.pkl'; //not supported format type (python pickle format)
+    try{
+      $exception = false;
+      $m->public_build_params();
+    }catch( parFormatNotSupported $e ) {
+      $exception = true;
+    }
+    $this->assertTrue( $exception, 'A parFormatNotSupported exception should have been thrown' );
   }
   
   public function test_pluralize() {
@@ -220,6 +229,15 @@ class php_active_resource_base_test extends PHPUnit_Framework_TestCase{
     $this->assertTrue( is_object( $res ), 'the response should be parsed into a stdClass' ); //associative array
     $this->assertEquals( 'stdClass', get_class( $res ) );
     $this->assertEquals( 'Home Alone', $res->title );
+    
+    $m->_request_format = '.pkl'; //not supported format type (python pickle format)
+    try{
+      $exception = false;
+      $m->public_decode_response( $raw_response );
+    }catch( parFormatNotSupported $e ) {
+      $exception = true;
+    }
+    $this->assertTrue( $exception, 'A parFormatNotSupported exception should have been thrown' );
   }
   
   public function test_find() {
@@ -235,25 +253,43 @@ class php_active_resource_base_test extends PHPUnit_Framework_TestCase{
   }
   
   public function test_save() {
+    // build the stubbed instance of movie
     $return_value =  (object)array( 'title'=>'Home Alone 2: Lost in New York', 'year'=>1992, 'rating'=>6.1 ); // change the title so I can check that it's binding values
     $stub = $this->getMock( "Movie", array('fetch_object_from_url') );
     $stub->expects( $this->any() )
          ->method( 'fetch_object_from_url' )
          ->will( $this->returnValue( $return_value ) );
-         
     $stub->set_resource_found();
-    $stub->set( array( 'title'=>'Home Alone', 'year'=>1990, 'id'=>10 ) );
     
-    // change some details
-    $stub->title = "Home Alone 2";
-    $stub->year = 1992;
-    $stub->id = 10;
-    $stub->save();
+    // change some values
+    $stub->set( array( 'title'=>'Home Alone ', 'year'=>1992, 'id'=>10 ) );
+    
+    // attempt to save
+    $res = $stub->save();
+    
+    $this->assertTrue( $res );
     
     // now make sure the save did what it was supposed to
     $this->assertEquals( 'Home Alone 2: Lost in New York', $stub->title );
     $this->assertEquals( 1992, $stub->year );
     $this->assertEquals( 6.1, $stub->rating  );
+  }
+  
+  public function test_save_with_error() {
+    // build the stubbed instance of movie
+    $stub = $this->getMock( "Movie", array('fetch_object_from_url') );
+    $stub->expects( $this->any() )
+         ->method( 'fetch_object_from_url' )
+         ->will( $this->throwException(new Exception) ); // make saving fail
+         
+    // change some values
+    $stub->set_resource_found();
+    $stub->set( array( 'title'=>'Home Alone', 'year'=>1990, 'id'=>10 ) );
+    
+    // attempt to save
+    $res = $stub->save();
+    
+    $this->assertFalse( $res );
   }
   
   public function test_destroy() {
